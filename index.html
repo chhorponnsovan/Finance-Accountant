@@ -20,9 +20,14 @@
   </details>
 
   <section class="card">
-    <label class="drop">📷 Choose or take a receipt photo
-      <input id="file" type="file" accept="image/*" capture="environment" hidden>
-    </label>
+    <div class="row">
+      <label class="drop" style="flex:1">🖼 Choose from Photos / Files
+        <input id="file" type="file" accept="image/*" hidden>
+      </label>
+      <label class="drop" style="flex:1">📷 Take a photo
+        <input id="cam" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+    </div>
     <div id="status" role="status"></div>
     <div class="row">
       <input id="store" placeholder="Store (optional)">
@@ -33,14 +38,12 @@
   <section id="items"></section>
   <div class="row">
     <button id="addItem">+ Add item</button>
-    <button id="translateAll">🌐 Translate all FR→EN</button>
   </div>
 
   <section class="card" id="summary"></section>
   <button id="submit" class="primary">Send to Google Sheet</button>
   <div id="result" role="status"></div>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -27,67 +27,46 @@ $('#addPerson').onclick = () => {
 };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// ---------- OCR ----------
-$('#file').onchange = async e => {
+// ---------- Receipt scan: Gemini, called through your Apps Script so the API key stays secret ----------
+const onPick = async e => {
   const f = e.target.files[0]; if (!f) return;
+  const url = $('#url').value.trim(), token = $('#token').value.trim();
+  if (!url) { $('#settings').open = true; return status('Add your Web App URL and token in Settings first.'); }
   try {
     status('Preparing image…');
-    const img = await prep(f);
-    const { data } = await Tesseract.recognize(img, 'fra', {
-      logger: m => m.status === 'recognizing text' && status(`Reading receipt… ${Math.round(m.progress * 100)}%`)
+    const image = await shrink(f);
+    status('Reading receipt with Gemini… (about 10-20 s)');
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'scan', token, image, mime: 'image/jpeg' }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    items = j.items.map(i => {
+      const qty = Math.max(1, Math.round(num(i.quantity) || 1));
+      return newItem(i.name, qty, num(i.lineTotal) / qty); // unit derived from the printed line total
     });
-    items = parse(data.text); render();
-    status(items.length ? `Found ${items.length} items. Please check them.` : 'No items detected, add them manually.');
-  } catch (err) { status('OCR failed: ' + err.message); }
+    detectedTotal = num(j.total) > 0 ? num(j.total) : null;
+    if (j.store) $('#store').value = j.store;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(j.date || '')) $('#date').value = j.date;
+    render();
+    status(items.length ? `Found ${items.length} items. Please check them.` : 'No items found, add them manually.');
+  } catch (err) { status('Scan failed: ' + err.message); }
+  e.target.value = '';
 };
-// Upscale + grayscale + contrast boost: noticeably improves Tesseract on thermal paper
-function prep(file) {
+$('#file').onchange = $('#cam').onchange = onPick;
+// Resize to max 1800px and re-encode as JPEG: keeps the upload small and fast
+function shrink(file) {
   return new Promise((res, rej) => {
     const i = new Image();
     i.onerror = () => rej(new Error('Cannot read image'));
     i.onload = () => {
-      const s = Math.min(2, Math.max(1, 1600 / i.width)), c = document.createElement('canvas');
+      const s = Math.min(1, 1800 / Math.max(i.width, i.height)), c = document.createElement('canvas');
       c.width = i.width * s; c.height = i.height * s;
-      const x = c.getContext('2d'); x.drawImage(i, 0, 0, c.width, c.height);
-      const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
-      for (let k = 0; k < p.length; k += 4) {
-        const g = Math.max(0, Math.min(255, (0.3 * p[k] + 0.59 * p[k + 1] + 0.11 * p[k + 2] - 110) * 1.6 + 110));
-        p[k] = p[k + 1] = p[k + 2] = g;
-      }
-      x.putImageData(d, 0, 0); c.toBlob(res);
+      c.getContext('2d').drawImage(i, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', 0.85).split(',')[1]);
     };
     i.src = URL.createObjectURL(file);
   });
 }
-const SKIP = /total|tva|\bcb\b|carte|esp[eè]ce|rendu|monnaie|visa|mastercard|siret|merci|remise|fid[eé]lit|cagnotte|paiement|^\s*$/i;
-function parse(text) {
-  const out = []; detectedTotal = null;
-  for (const raw of text.split('\n')) {
-    const line = raw.replace(/[€|]/g, ' ').replace(/\s+/g, ' ').trim();
-    const t = line.match(/total[^\d-]*(\d+[.,]\d{2})\s*$/i);
-    if (t && !/sous/i.test(line)) detectedTotal = num(t[1]);
-    const m = line.match(/^(.*?)\s?(-?\d+[.,]\d{2})(?:\s?[A-Z*])?$/);
-    if (!m || SKIP.test(m[1])) continue;
-    let name = m[1], total = num(m[2]), qty = 1, unit = total;
-    const q = name.match(/^(.*?)\s*(\d+)\s*[xX*]\s*(\d+[.,]\d{2})$/);
-    if (q) { name = q[1]; qty = +q[2]; unit = num(q[3]); }
-    name = name.trim();
-    if (!name && q && out.length) { Object.assign(out[out.length - 1], { qty, unit }); continue; } // "2 x 1,45" on its own line
-    if (name.length < 2) continue;
-    out.push(newItem(name, qty, unit));
-  }
-  return out;
-}
-
-// ---------- Translation (MyMemory: free, no key) ----------
-async function translate(it) {
-  try {
-    const r = await fetch('https://api.mymemory.translated.net/get?langpair=fr|en&q=' + encodeURIComponent(it.name.toLowerCase()));
-    const t = (await r.json()).responseData.translatedText;
-    if (t) it.name = t;
-  } catch { status('Translation unavailable right now.'); }
-}
-$('#translateAll').onclick = async () => { status('Translating…'); for (const it of items) await translate(it); render(); status('Translated. Edit anything that looks off.'); };
 
 // ---------- Items UI ----------
 $('#addItem').onclick = () => { items.push(newItem()); render(); };
@@ -100,7 +79,7 @@ function render() {
         people.map(p => `<span class="chip ${it.take[p] ? 'on' : ''}" data-i="${i}" data-t="${esc(p)}">${esc(p)}</span>`).join('');
     return `<div class="item">
       <div class="row"><input class="name" data-n="${i}" value="${esc(it.name)}" placeholder="Item">
-        <button data-tr="${i}" title="Translate">🌐</button><button data-del="${i}" title="Remove">🗑</button></div>
+<button data-del="${i}" title="Remove">🗑</button></div>
       <div class="row"><label>Qty <input class="num" type="number" min="1" step="1" data-q="${i}" value="${it.qty}"></label>
         <label>Unit € <input class="num" type="text" inputmode="decimal" data-u="${i}" value="${eur(it.unit)}"></label>
         <span class="tot">${eur(it.qty * it.unit)} €</span></div>
@@ -117,7 +96,6 @@ function render() {
   L.querySelectorAll('[data-all]').forEach(e => e.onclick = () => { const it = items[+e.dataset.all], on = units(it) < people.length; people.forEach(p => it.take[p] = on ? 1 : 0); render(); });
   L.querySelectorAll('input[data-p]').forEach(e => e.onchange = () => { items[+e.dataset.i].take[e.dataset.p] = Math.max(0, Math.round(num(e.value))); render(); });
   L.querySelectorAll('[data-del]').forEach(e => e.onclick = () => { items.splice(+e.dataset.del, 1); render(); });
-  L.querySelectorAll('[data-tr]').forEach(e => e.onclick = async () => { await translate(items[+e.dataset.tr]); render(); });
   renderSummary();
 }
 

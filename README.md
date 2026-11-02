@@ -10,6 +10,12 @@
 5. Copy the **Web app URL** (ends in `/exec`). Opening it in a browser should show `{"ok":true,...}`.
 6. If you ever edit the code: **Deploy → Manage deployments → ✏ → New version → Deploy** (URL stays the same).
 
+## A2. Gemini key (new)
+1. Go to aistudio.google.com/apikey and create a **new** key (never paste it into chat or into GitHub).
+2. In Apps Script: ⚙ **Project Settings → Script properties → Add script property**: name `GEMINI_API_KEY`, value = your key → Save.
+3. Choose `testGemini` in the function dropdown → ▶ Run → authorise. The log should start with `200`.
+4. **Deploy → Manage deployments → ✏ → New version → Deploy** (needed after any code change).
+
 ## B. GitHub (no git commands needed)
 1. Open github.com/chhorponnsovan/Finance-Accountant → **Add file → Upload files**.
 2. Drag in `index.html`, `app.js`, `styles.css`, `README.md` → **Commit changes**.
@@ -19,7 +25,7 @@
 
 ## C. First run
 1. Open the app → ⚙ Settings → paste the Web App URL and the token. Names are pre-filled: YANIT, LANG, OUDOM, CHHORPONN.
-2. Pick a receipt photo, fix items, translate, assign people, **Send**.
+2. Pick a receipt photo (Gemini reads and translates it), check items, assign people, **Send**.
 3. A new tab (e.g. `2/11/2026`) appears in your sheet with the same layout and totals.
 
 Multi-pack: set Qty to 6 (the 8.70 total is kept, so unit becomes 1.45), then enter each person's units. The sheet gets one row per person.
