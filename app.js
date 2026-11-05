@@ -40,6 +40,7 @@ const onPick = async e => {
       body: JSON.stringify({ action: 'scan', token, image, mime: 'image/jpeg' }) });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
+    if (!Array.isArray(j.items)) throw new Error('Your Apps Script is still running old code. In Apps Script: Deploy > Manage deployments > pencil > Version: New version > Deploy.');
     items = j.items.map(i => {
       const qty = Math.max(1, Math.round(num(i.quantity) || 1));
       return newItem(i.name, qty, num(i.lineTotal) / qty); // unit derived from the printed line total
@@ -121,7 +122,7 @@ $('#submit').onclick = async () => {
   const url = $('#url').value.trim(), token = $('#token').value.trim();
   if (!url) { $('#settings').open = true; return status('Add your Web App URL in Settings first.', '#result'); }
   if (!items.length) return status('No items to send.', '#result');
-  const bad = items.findIndex(it => !it.name.trim() || units(it) < 1 || units(it) > it.qty || (it.qty > 1 && units(it) !== it.qty));
+  const bad = items.findIndex(it => !it.name.trim() || units(it) < 1 || (it.qty > 1 && units(it) !== it.qty));
   if (bad >= 0) return status(`Item ${bad + 1} needs a name and every unit assigned.`, '#result');
   status('Sending…', '#result'); $('#submit').disabled = true;
   try {

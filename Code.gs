@@ -1,6 +1,6 @@
 // ===== Settings =====
 const TOKEN = 'change-me-to-a-long-random-string'; // must match the token typed in the web app
-const GEMINI_MODEL = 'gemini-2.5-flash';           // the API key itself lives in Project Settings > Script properties
+const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash']; // tried in order if one is busy. API key: Project Settings > Script properties
 
 // ===== Your existing function, unchanged =====
 function onEdit(e) {
@@ -128,7 +128,7 @@ function scan_(d) {
     'Fold discount or coupon lines into the item they apply to; never list them as separate items. ' +
     'Ignore subtotal, VAT, payment, change and loyalty lines. Use numbers with a dot as decimal separator. ' +
     'receiptTotal = the final amount paid. store = store name. date = purchase date as YYYY-MM-DD, or "" if unreadable. ' +
-    'If a price is unreadable, use 0 rather than guessing.';
+    'If a price is unreadable, use 0 rather than guessing. Today is ' + Utilities.formatDate(new Date(), 'Europe/Paris', 'yyyy-MM-dd') + '. French receipts print dates as DD.MM.YY or DD/MM/YYYY, so a two-digit year such as 26 means 2026.';
   const body = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: d.mime || 'image/jpeg', data: d.image } }] }],
     generationConfig: {
@@ -146,21 +146,35 @@ function scan_(d) {
       }
     }
   };
-  const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent', {
-    method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify(body), muteHttpExceptions: true
-  });
-  if (res.getResponseCode() !== 200) return { ok: false, error: 'Gemini ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 300) };
-  const o = JSON.parse(JSON.parse(res.getContentText()).candidates[0].content.parts[0].text);
+  const g = callGemini_(body, key);
+  if (g.code !== 200) return { ok: false, error: 'Gemini unavailable (' + g.code + ', tried ' + g.tried.join(', ') + '). Try again in a minute. ' + g.text.slice(0, 200) };
+  const o = JSON.parse(JSON.parse(g.text).candidates[0].content.parts[0].text);
   return { ok: true, items: o.items, total: o.receiptTotal, store: o.store, date: o.date };
 }
 
-// Run this once from the editor (▶) to authorise outside requests and check your key works. See View > Logs.
+// Retries a busy model once, then falls back to the next one in GEMINI_MODELS
+function callGemini_(body, key) {
+  const tried = []; let g = { code: 0, text: '', tried: tried };
+  for (const model of GEMINI_MODELS) {
+    tried.push(model);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent', {
+        method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
+        payload: JSON.stringify(body), muteHttpExceptions: true
+      });
+      g = { code: res.getResponseCode(), text: res.getContentText(), tried: tried };
+      if (g.code === 200) return g;
+      if ([429, 500, 503, 404].indexOf(g.code) < 0) return g;  // bad key / bad request: retrying won't help
+      if (g.code === 404) break;                                // this key can't use that model name
+      Utilities.sleep(1500);
+    }
+  }
+  return g;
+}
+
+// Run once from the editor (▶) to authorise outside requests and check your key. Result appears in the Execution log.
 function testGemini() {
   const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent', {
-    method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with the single word OK' }] }] }), muteHttpExceptions: true
-  });
-  Logger.log(res.getResponseCode() + ' ' + res.getContentText().slice(0, 300));
+  const g = callGemini_({ contents: [{ parts: [{ text: 'Reply with the single word OK' }] }] }, key);
+  Logger.log(g.code + ' (tried: ' + g.tried.join(', ') + ') ' + g.text.slice(0, 300));
 }
